@@ -1,0 +1,69 @@
+{
+  "entities": {
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A financial transaction record",
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "What the transaction was for"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Transaction amount in local currency"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["income", "expense"],
+          "description": "Type of transaction"
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the transaction occurred"
+        },
+        "category": {
+          "type": "string",
+          "description": "Transaction category"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner of the transaction"
+        },
+        "recurrenceId": {
+          "type": "string",
+          "description": "ID to group related recurrent transactions"
+        },
+        "recurrenceIndex": {
+          "type": "number",
+          "description": "Index of this transaction in the sequence"
+        },
+        "recurrenceTotal": {
+          "type": "number",
+          "description": "Total number of occurrences (null if eternal)"
+        },
+        "isSubscription": {
+          "type": "boolean",
+          "description": "Whether this transaction represents a recurring subscription service"
+        },
+        "cancelReminderDate": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When to remind about cancelling this subscription"
+        },
+        "reminderSent": {
+          "type": "boolean",
+          "description": "Whether the reminder email has been triggered"
+        }
+      },
+      "required": ["description", "amount", "type", "date", "userId"]
+    }
+  },
+  "firestore": {
+    "transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Transactions collection"
+    }
+  }
+}

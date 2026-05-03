@@ -1,0 +1,6 @@
+{
+  "name": "Finanças Simples",
+  "description": "Uma aplicação completa para controle de finanças pessoais com CRUD de transações, suporte a upload de planilhas e persistência de dados.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
