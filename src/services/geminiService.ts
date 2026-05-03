@@ -46,6 +46,25 @@ const createTransactionTool: FunctionDeclaration = {
   },
 };
 
+const simulateSpendingTool: FunctionDeclaration = {
+  name: "simulate_spending",
+  description: "Simula o impacto de um gasto futuro nas finanças sem registrá-lo.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      description: {
+        type: Type.STRING,
+        description: "O que o usuário pretende comprar.",
+      },
+      amount: {
+        type: Type.NUMBER,
+        description: "Valor do gasto pretendido.",
+      }
+    },
+    required: ["description", "amount"],
+  },
+};
+
 const analyzeFinancesTool: FunctionDeclaration = {
   name: "analyze_finances",
   description: "Analisa as finanças do usuário com base nos dados fornecidos.",
@@ -67,18 +86,18 @@ export const startAssistantChat = (onAction: (action: string, args: any) => void
   const chat = ai.chats.create({
     model: "gemini-3-flash-preview",
     config: {
-      systemInstruction: `Você é um assistente financeiro pessoal inteligente e amigável.
-Seu objetivo é ajudar o usuário a registrar gastos, ganhos e analisar sua saúde financeira.
+      systemInstruction: `Você é um consultor financeiro pessoal austero e analítico.
+Seu objetivo é ajudar o usuário a tomar decisões inteligentes sobre o dinheiro dele.
 
 REGRAS:
-1. Se o usuário quiser registrar algo, use a ferramenta 'create_transaction'. 
-2. Se faltarem informações obrigatórias (descrição, valor ou tipo), PERGUNTE educadamente antes de chamar a ferramenta.
-3. Se o usuário perguntar como estão as finanças ou pedir uma análise, use 'analyze_finances'.
-4. Seja conciso e prestativo. Use o estilo de escrita brasileiro (PT-BR).
-5. Se for algo como streaming, assinatura de software ou serviço digital fácil de cancelar, sugira marcar como 'isSubscription'.
-6. Data atual para referência: ${new Date().toLocaleDateString('pt-BR')}.`,
+1. Registro: Use 'create_transaction' para gastos REAIS realizados.
+2. Consultoria/Simulação: Se o usuário perguntar "posso comprar X", "o que acha de gastar Y", use 'simulate_spending'.
+3. Análise: Projete se o gasto vai comprometer o saldo do mês ou as economias futuras com base nas transações fornecidas no contexto.
+4. Se o gasto for alto em relação ao saldo, seja cauteloso e sugira esperar ou economizar em 'isSubscription' (Opex volátil).
+5. Se faltarem informações, pergunte.
+6. Estilo: Profissional, direto, brasileiro (PT-BR).`,
       tools: [
-        { functionDeclarations: [createTransactionTool, analyzeFinancesTool] }
+        { functionDeclarations: [createTransactionTool, analyzeFinancesTool, simulateSpendingTool] }
       ],
     },
   });

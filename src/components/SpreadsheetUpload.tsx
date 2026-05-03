@@ -53,7 +53,12 @@ export const SpreadsheetUpload: React.FC<SpreadsheetUploadProps> = ({ onDataPars
                   // Excel serial date
                   date = new Date((dateStr - 25569) * 86400 * 1000);
                } else {
-                  date = new Date(dateStr);
+                  // String date. Append T12:00:00 if it's purely a date string to avoid timezone shifts
+                  let dStr = String(dateStr);
+                  if (dStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                     dStr += "T12:00:00";
+                  }
+                  date = new Date(dStr);
                }
             }
 

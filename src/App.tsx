@@ -33,11 +33,19 @@ import {
   PieChart as PieIcon,
   Bell,
   Calendar,
-  AlertTriangle
+  AlertTriangle,
+  ChevronDown,
+  Settings,
+  Bot,
+  Edit2,
+  Check,
+  Trash2
 } from 'lucide-react';
 import { 
   AreaChart, 
   Area, 
+  ComposedChart,
+  Line,
   XAxis, 
   YAxis, 
   CartesianGrid, 
@@ -46,9 +54,9 @@ import {
   BarChart,
   Bar,
   Legend,
+  Cell,
   PieChart,
-  Pie,
-  Cell
+  Pie
 } from 'recharts';
 import { auth, db, signInWithGoogle, handleFirestoreError, OperationType } from './lib/firebase';
 import { Transaction } from './types';
@@ -66,11 +74,16 @@ export default function App() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
+  const [savingsGoal, setSavingsGoal] = useState(20);
+  const [isEditingSavingsGoal, setIsEditingSavingsGoal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | undefined>();
   const [prefilledAmount, setPrefilledAmount] = useState<number | undefined>();
   const [monthFilter, setMonthFilter] = useState(new Date().getMonth());
   const [yearFilter, setYearFilter] = useState(new Date().getFullYear());
   const [activeTab, setActiveTab] = useState<'list' | 'projection' | 'analytics'>('list');
+  const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
 
   // Colors for charts
   const COLORS = ['#82947D', '#967E67', '#D1C7BD', '#6B5E52', '#E0D8D0', '#4A3D30'];
@@ -166,6 +179,7 @@ export default function App() {
 
     for (let i = 0; i < monthsCount; i++) {
         const d = new Date(start);
+        d.setDate(1); // Set to 1st to prevent jumping over short months (e.g., setMonth from 31st to Feb)
         d.setMonth(start.getMonth() + i);
         
         const monthTransactions = transactions.filter(t => 
@@ -228,10 +242,33 @@ export default function App() {
 
     try {
       if (editingTransaction?.id) {
-        await updateDoc(doc(db, 'transactions', editingTransaction.id), {
-          ...data,
-          updatedAt: serverTimestamp(),
-        });
+        // Se for recorrente, pergunta se deseja atualizar todos os futuros
+        let updateFuture = false;
+        if (editingTransaction.recurrenceId) {
+            updateFuture = confirm("Deseja aplicar esta alteração em todos os lançamentos futuros desta série?");
+        }
+
+        if (updateFuture && editingTransaction.recurrenceId) {
+            const batch = writeBatch(db);
+            const futureTransactions = transactions.filter(t => 
+                t.recurrenceId === editingTransaction.recurrenceId && 
+                t.date >= editingTransaction.date
+            );
+
+            futureTransactions.forEach(t => {
+                batch.update(doc(db, 'transactions', t.id!), {
+                    ...data,
+                    date: t.date, // Mantém a data original de cada ocorrência
+                    updatedAt: serverTimestamp(),
+                });
+            });
+            await batch.commit();
+        } else {
+            await updateDoc(doc(db, 'transactions', editingTransaction.id), {
+                ...data,
+                updatedAt: serverTimestamp(),
+            });
+        }
       } else if (data.recurrenceTotal !== undefined) {
           // Handle recurrence (Batch creation)
           const batch = writeBatch(db);
@@ -241,7 +278,12 @@ export default function App() {
 
           for (let i = 0; i < count; i++) {
               const transactionDate = new Date(data.date);
-              transactionDate.setMonth(data.date.getMonth() + i);
+              const targetMonth = transactionDate.getMonth() + i;
+              transactionDate.setMonth(targetMonth);
+              // Fix JS date wrap around (e.g. Jan 31 + 1 month = Mar 3)
+              if (transactionDate.getMonth() !== targetMonth % 12) {
+                  transactionDate.setDate(0); // Sets to last day of previous month
+              }
               
               const ref = doc(collection(db, 'transactions'));
               batch.set(ref, {
@@ -267,12 +309,40 @@ export default function App() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Deseja realmente excluir este lançamento?')) return;
+  const handleDelete = (id: string) => {
+    const transaction = transactions.find(t => t.id === id);
+    if (transaction) {
+      setTransactionToDelete(transaction);
+    } else {
+      // Fallback
+      deleteDoc(doc(db, 'transactions', id)).catch(e => console.error(e));
+    }
+  };
+
+  const executeDelete = async (deleteSeries: boolean) => {
+    if (!transactionToDelete) return;
+    const { id, recurrenceId, date } = transactionToDelete;
+
     try {
-      await deleteDoc(doc(db, 'transactions', id));
+      if (deleteSeries && recurrenceId) {
+        const batch = writeBatch(db);
+        const futureDocs = transactions.filter(t => 
+          t.recurrenceId === recurrenceId && 
+          t.date.getTime() >= date.getTime()
+        );
+
+        futureDocs.forEach(t => {
+          if (t.id) batch.delete(doc(db, 'transactions', t.id));
+        });
+        await batch.commit();
+      } else if (id) {
+        await deleteDoc(doc(db, 'transactions', id));
+      }
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, 'transactions');
+      console.error("Erro ao excluir:", error);
+      handleFirestoreError(error, OperationType.DELETE, `transactions/${id}`);
+    } finally {
+      setTransactionToDelete(null);
     }
   };
 
@@ -349,24 +419,75 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setIsCalculatorOpen(true)}
-              className="p-2 text-natural-muted hover:text-natural-accent hover:bg-natural-bg rounded-lg transition-colors"
-              title="Calculadora Rápida"
-            >
-              <CalcIcon size={20} />
-            </button>
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-[#FBFAF8] rounded-full border border-natural-border">
-              <img src={user.photoURL || ''} className="w-6 h-6 rounded-full" alt="" />
-              <span className="text-sm font-medium text-natural-text">{user.displayName?.split(' ')[0]}</span>
+            <div className="relative">
+              <button 
+                onClick={() => setIsToolsMenuOpen(!isToolsMenuOpen)}
+                className="flex items-center gap-2 px-3 py-2 bg-natural-bg hover:bg-natural-border rounded-xl border border-natural-border transition-all"
+              >
+                <img src={user.photoURL || ''} className="w-8 h-8 rounded-full border border-natural-border shadow-sm" alt="" />
+                <div className="hidden md:flex flex-col items-start leading-none">
+                  <span className="text-xs font-bold text-natural-text">{user.displayName?.split(' ')[0]}</span>
+                  <span className="text-[10px] text-natural-muted font-medium">Conta Pessoal</span>
+                </div>
+                <ChevronDown size={14} className={cn("text-natural-muted transition-transform", isToolsMenuOpen && "rotate-180")} />
+              </button>
+
+              {isToolsMenuOpen && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-10" 
+                    onClick={() => setIsToolsMenuOpen(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-56 bg-white border border-natural-border rounded-2xl shadow-xl z-20 py-2 animate-in fade-in slide-in-from-top-2">
+                    <div className="px-4 py-2 border-b border-natural-border mb-2">
+                      <p className="text-[10px] uppercase tracking-wider text-natural-muted font-bold">Ferramentas</p>
+                    </div>
+                    
+                    <button 
+                      onClick={() => { setIsAssistantOpen(true); setIsToolsMenuOpen(false); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-natural-text hover:bg-natural-bg transition-colors"
+                    >
+                      <div className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center">
+                        <Bot size={18} />
+                      </div>
+                      <span className="font-semibold">Simular Gasto (IA)</span>
+                    </button>
+
+                    <button 
+                      onClick={() => { setIsCalculatorOpen(true); setIsToolsMenuOpen(false); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-natural-text hover:bg-natural-bg transition-colors"
+                    >
+                      <div className="w-8 h-8 bg-amber-50 text-amber-600 rounded-lg flex items-center justify-center">
+                        <CalcIcon size={18} />
+                      </div>
+                      <span className="font-semibold">Calculadora</span>
+                    </button>
+
+                    <button 
+                      onClick={() => { setIsImportOpen(true); setIsToolsMenuOpen(false); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-natural-text hover:bg-natural-bg transition-colors"
+                    >
+                      <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center">
+                        <FileDown size={18} />
+                      </div>
+                      <span className="font-semibold">Importar Planilha</span>
+                    </button>
+
+                    <div className="h-px bg-natural-border my-2" />
+                    
+                    <button 
+                      onClick={() => signOut(auth)}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-natural-expense hover:bg-rose-50 transition-colors"
+                    >
+                      <div className="w-8 h-8 bg-rose-50 text-rose-600 rounded-lg flex items-center justify-center">
+                        <LogOut size={18} />
+                      </div>
+                      <span className="font-semibold">Sair da Conta</span>
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
-            <button 
-              onClick={() => signOut(auth)}
-              className="p-2 text-natural-muted hover:text-natural-expense hover:bg-natural-bg rounded-lg transition-colors"
-              title="Sair"
-            >
-              <LogOut size={20} />
-            </button>
           </div>
         </div>
       </header>
@@ -516,7 +637,7 @@ export default function App() {
 
                     <div className="h-[400px] w-full">
                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={projectionData}>
+                            <ComposedChart data={projectionData}>
                                 <defs>
                                     <linearGradient id="colorSaldo" x1="0" y1="0" x2="0" y2="1">
                                     <stop offset="5%" stopColor="#82947D" stopOpacity={0.1}/>
@@ -546,15 +667,49 @@ export default function App() {
                                     }}
                                     formatter={(value: number) => formatCurrency(value)}
                                 />
+                                <Legend 
+                                    verticalAlign="top" 
+                                    align="right" 
+                                    iconType="circle"
+                                    content={({ payload }) => (
+                                        <div className="flex justify-end gap-6 mb-6">
+                                            {payload?.map((entry: any, index) => (
+                                                <div key={index} className="flex items-center gap-2">
+                                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                                                    <span className="text-xs font-bold text-natural-muted uppercase tracking-wider">{entry.value}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                />
                                 <Area 
                                     type="monotone" 
                                     dataKey="Saldo" 
+                                    name="Saldo Acumulado"
                                     stroke="#82947D" 
                                     strokeWidth={3}
                                     fillOpacity={1} 
                                     fill="url(#colorSaldo)" 
                                 />
-                            </AreaChart>
+                                <Line 
+                                    type="monotone" 
+                                    dataKey="Receita" 
+                                    name="Receitas"
+                                    stroke="#10b981" 
+                                    strokeWidth={2} 
+                                    strokeDasharray="5 5"
+                                    dot={false}
+                                />
+                                <Line 
+                                    type="monotone" 
+                                    dataKey="Despesa" 
+                                    name="Despesas"
+                                    stroke="#ef4444" 
+                                    strokeWidth={2} 
+                                    strokeDasharray="5 5"
+                                    dot={false}
+                                />
+                            </ComposedChart>
                         </ResponsiveContainer>
                     </div>
 
@@ -683,10 +838,11 @@ export default function App() {
                                                 </button>
                                             )}
                                             <button 
-                                                onClick={() => handleDelete(sub.id)}
+                                                onClick={() => sub.id && handleDelete(sub.id)}
                                                 className="p-2 text-natural-muted hover:text-natural-expense hover:bg-white rounded-lg transition-all"
+                                                title="Excluir assinatura"
                                             >
-                                                <AlertTriangle size={18} />
+                                                <Trash2 size={18} />
                                             </button>
                                         </div>
                                     </div>
@@ -701,20 +857,72 @@ export default function App() {
 
           {/* Sidebar / Stats */}
           <div className="lg:col-span-4 space-y-6">
-             <div className="bg-natural-accent p-8 rounded-3xl shadow-xl shadow-natural-accent/20 text-white relative overflow-hidden">
+             <div className="bg-natural-accent p-8 rounded-3xl shadow-xl shadow-natural-accent/20 text-white relative overflow-hidden group">
                 <div className="absolute top-0 right-0 -mr-4 -mt-4 w-24 h-24 bg-white/10 rounded-full blur-3xl"></div>
-                <h4 className="text-sm font-semibold text-white/70 uppercase tracking-widest mb-2">Meta de Economia</h4>
-                <div className="flex items-end gap-2 mb-6">
-                    <span className="text-4xl font-bold">20%</span>
-                    <span className="text-sm text-white/60 pb-1">da renda mensal</span>
+                <div className="flex justify-between items-start mb-2 relative z-10">
+                    <h4 className="text-sm font-semibold text-white/70 uppercase tracking-widest">Meta de Economia</h4>
+                    <button 
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setIsEditingSavingsGoal(!isEditingSavingsGoal);
+                        }}
+                        className="p-2 bg-white/20 hover:bg-white/30 rounded-full transition-all text-white flex items-center justify-center cursor-pointer"
+                        title={isEditingSavingsGoal ? "Salvar meta" : "Editar meta"}
+                    >
+                        {isEditingSavingsGoal ? <Check size={14} /> : <Edit2 size={14} />}
+                    </button>
                 </div>
-                <div className="w-full bg-white/20 rounded-full h-2 mb-2">
+                
+                <div className="flex items-center gap-2 mb-1 relative z-10">
+                    {isEditingSavingsGoal ? (
+                        <input 
+                            type="number"
+                            value={savingsGoal || ''}
+                            onChange={(e) => {
+                                const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+                                setSavingsGoal(val);
+                            }}
+                            autoFocus
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') setIsEditingSavingsGoal(false);
+                                if (e.key === 'Escape') setIsEditingSavingsGoal(false);
+                            }}
+                            className="bg-white/10 text-4xl font-bold w-24 outline-none border-b-2 border-white/50 focus:border-white transition-all px-2 rounded-t-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                    ) : ( 
+                        <span 
+                            className="text-4xl font-bold animate-in fade-in zoom-in-95 duration-300 cursor-pointer"
+                            onClick={() => setIsEditingSavingsGoal(true)}
+                        >
+                            {savingsGoal}
+                        </span>
+                    )}
+                    <span className="text-4xl font-bold">%</span>
+                </div>
+                <p className="text-xs text-white/60 mb-6 font-medium">
+                    Representa <span className="text-white font-bold">{formatCurrency(stats.income * (savingsGoal / 100))}</span> da sua renda
+                </p>
+
+                <div className="w-full bg-white/20 rounded-full h-3 mb-3 p-0.5">
                     <div 
-                      className="bg-white h-full rounded-full transition-all duration-500" 
+                      className={cn(
+                        "h-full rounded-full transition-all duration-700 shadow-sm",
+                        ((stats.income - stats.expenses) / (stats.income || 1)) * 100 >= savingsGoal ? "bg-emerald-400" : "bg-white"
+                      )} 
                       style={{ width: `${Math.min(( (stats.income - stats.expenses) / (stats.income || 1) ) * 100, 100)}%` }}
                     ></div>
                 </div>
-                <p className="text-xs text-white/80 font-medium">Você está {stats.income > 0 ? ( (stats.income - stats.expenses) / stats.income >= 0.2 ? 'dentro da meta!' : 'quase lá!' ) : 'começando agora.'}</p>
+                <div className="flex justify-between items-center">
+                    <p className="text-xs text-white font-bold">
+                        {stats.income > 0 ? ( 
+                            ((stats.income - stats.expenses) / stats.income) * 100 >= savingsGoal 
+                                ? '✨ Meta batida!' 
+                                : `Faltam ${formatCurrency(Math.max(0, (stats.income * savingsGoal / 100) - (stats.income - stats.expenses)))}` 
+                        ) : 'Aguardando renda...'}
+                    </p>
+                    <span className="text-[10px] text-white/60 font-bold">ATUAL: {((stats.income - stats.expenses) / (stats.income || 1) * 100).toFixed(0)}%</span>
+                </div>
              </div>
 
              <div className="bg-white p-6 rounded-3xl border border-natural-border shadow-sm">
@@ -743,18 +951,68 @@ export default function App() {
         </div>
       </main>
 
-      {/* Floating Tools */}
-      <div className="fixed bottom-8 right-8 flex flex-col gap-4">
-          <button 
-            onClick={() => setIsCalculatorOpen(true)}
-            className="w-14 h-14 bg-white border border-natural-border shadow-xl rounded-2xl flex items-center justify-center text-natural-accent hover:bg-natural-bg transition-all active:scale-95"
-            title="Calculadora Rápida"
-          >
-             <CalcIcon size={24} />
-          </button>
-      </div>
-
       {/* Modals */}
+      {transactionToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-md p-6 sm:p-8 shadow-2xl border border-natural-border animate-in slide-in-from-bottom-8">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mb-6">
+                <AlertTriangle size={32} />
+              </div>
+              <h3 className="text-2xl font-bold text-natural-text mb-2">Excluir Lançamento</h3>
+              
+              {transactionToDelete.recurrenceId ? (
+                <>
+                  <p className="text-natural-muted mb-6">
+                    "{transactionToDelete.description}" é um lançamento recorrente. O que você deseja fazer?
+                  </p>
+                  <div className="flex flex-col gap-3 w-full">
+                    <button 
+                      onClick={() => executeDelete(true)}
+                      className="w-full py-3 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl transition-colors"
+                    >
+                      Excluir Todos Futuros
+                    </button>
+                    <button 
+                      onClick={() => executeDelete(false)}
+                      className="w-full py-3 px-4 bg-white border-2 border-rose-600 text-rose-600 hover:bg-rose-50 font-bold rounded-xl transition-colors"
+                    >
+                      Excluir Apenas Este
+                    </button>
+                    <button 
+                      onClick={() => setTransactionToDelete(null)}
+                      className="w-full py-3 px-4 bg-natural-bg text-natural-text hover:bg-natural-border font-bold rounded-xl transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-natural-muted mb-6">
+                    Tem certeza que deseja excluir "{transactionToDelete.description}"? Esta ação não pode ser desfeita.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-3 w-full">
+                    <button 
+                      onClick={() => executeDelete(false)}
+                      className="flex-1 py-3 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl transition-colors"
+                    >
+                      Sim, Excluir
+                    </button>
+                    <button 
+                      onClick={() => setTransactionToDelete(null)}
+                      className="flex-1 py-3 px-4 bg-natural-bg text-natural-text hover:bg-natural-border font-bold rounded-xl transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {isFormOpen && (
         <TransactionForm 
           onClose={() => { 
@@ -788,6 +1046,8 @@ export default function App() {
       )}
 
       <GeminiAssistant 
+        isOpen={isAssistantOpen}
+        onClose={() => setIsAssistantOpen(!isAssistantOpen)}
         onAddTransaction={async (data) => {
           await handleAddOrUpdate(data);
         }}

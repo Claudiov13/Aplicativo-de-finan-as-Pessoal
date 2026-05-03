@@ -12,12 +12,18 @@ interface Message {
 interface GeminiAssistantProps {
   onAddTransaction: (transaction: Omit<Transaction, 'id' | 'userId' | 'createdAt'>) => Promise<void>;
   transactions: Transaction[];
+  isOpen: boolean;
+  onClose: () => void;
 }
 
-export const GeminiAssistant: React.FC<GeminiAssistantProps> = ({ onAddTransaction, transactions }) => {
-  const [isOpen, setIsOpen] = useState(false);
+export const GeminiAssistant: React.FC<GeminiAssistantProps> = ({ 
+  onAddTransaction, 
+  transactions,
+  isOpen,
+  onClose
+}) => {
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'assistant', content: 'Olá! Sou seu assistente financeiro. Como posso ajudar hoje? Pode me contar um gasto ou pedir uma análise das suas contas.' }
+    { role: 'assistant', content: 'Olá! Sou seu consultor financeiro. Como posso ajudar? Pode me contar um gasto novo ou pedir para simular uma compra futura para eu avaliar o impacto.' }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -37,23 +43,24 @@ export const GeminiAssistant: React.FC<GeminiAssistantProps> = ({ onAddTransacti
     }
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim() || !chat) return;
+  const handleSend = async (overrideInput?: string) => {
+    const textToSend = overrideInput || input.trim();
+    if (!textToSend || !chat) return;
 
-    const userMessage = input.trim();
-    setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    if (!overrideInput) setInput('');
+    setMessages(prev => [...prev, { role: 'user', content: textToSend }]);
     setIsLoading(true);
 
     try {
-      // Add context about transactions if user asks for analysis
-      let prompt = userMessage;
-      if (userMessage.toLowerCase().includes('analis') || userMessage.toLowerCase().includes('resumo')) {
-        const summary = transactions.slice(0, 50).map(t => 
-          `${t.date.toLocaleDateString()}: ${t.description} - ${t.type === 'income' ? '+' : '-'}${t.amount} (Cat: ${t.category || 'N/A'})`
-        ).join('\n');
-        prompt = `${userMessage}\n\nContexto das últimas transações:\n${summary}`;
-      }
+      // Add context about transactions
+      let prompt = textToSend;
+      const history = transactions.slice(-30).map(t => 
+        `${t.date.toLocaleDateString()}: ${t.description} - ${t.type === 'income' ? '+' : '-'}${t.amount} (Cat: ${t.category || 'N/A'}, Sub: ${t.isSubscription ? 'Sim' : 'Não'})`
+      ).join('\n');
+      
+      const balance = transactions.reduce((acc, t) => acc + (t.type === 'income' ? t.amount : -t.amount), 0);
+
+      prompt = `${textToSend}\n\n[CONTEXTO FINANCEIRO ATUAL]\nSaldo Total: R$ ${balance.toFixed(2)}\nÚltimos 30 lançamentos:\n${history}`;
 
       const response = await chat.sendMessage({ message: prompt });
       
@@ -62,22 +69,37 @@ export const GeminiAssistant: React.FC<GeminiAssistantProps> = ({ onAddTransacti
         for (const call of functionCalls) {
           if (call.name === 'create_transaction') {
             const args = call.args as any;
+            let parsedDate = new Date();
+            if (args.date) {
+               // Append T12:00:00 to force local time noon to avoid timezone shift
+               const dateStr = args.date.includes('T') ? args.date : `${args.date}T12:00:00`;
+               parsedDate = new Date(dateStr);
+            }
             await onAddTransaction({
               description: args.description,
               amount: args.amount,
               type: args.type as 'expense' | 'income',
               category: args.category || '',
               isSubscription: args.isSubscription || false,
-              date: args.date ? new Date(args.date) : new Date()
+              date: parsedDate
             });
-            // Inform model the call succeeded
             const followUp = await chat.sendMessage({ 
-              message: `SUCESSO: O lançamento "${args.description}" de ${args.amount} foi cadastrado.` 
+              message: `SUCESSO: Registro de "${args.description}" concluído.` 
             });
             setMessages(prev => [...prev, { role: 'assistant', content: followUp.text }]);
+          } else if (call.name === 'simulate_spending') {
+             const args = call.args as any;
+             const followUp = await chat.sendMessage({ 
+               message: `SIMULAÇÃO PROCESSADA: Item "${args.description}" (R$ ${args.amount}). Por favor, forneça agora seu parecer de consultor se esse gasto é recomendado ou se vai pesar demais.` 
+             });
+             setMessages(prev => [...prev, { role: 'assistant', content: followUp.text }]);
           } else if (call.name === 'analyze_finances') {
-             // Already provided context in prompt, but we could do more here
-             setMessages(prev => [...prev, { role: 'assistant', content: response.text }]);
+             if (!response.text) {
+                const followUp = await chat.sendMessage({ message: "Por favor, conclua sua análise financeira baseada nos dados enviados." });
+                setMessages(prev => [...prev, { role: 'assistant', content: followUp.text }]);
+             } else {
+                setMessages(prev => [...prev, { role: 'assistant', content: response.text }]);
+             }
           }
         }
       } else {
@@ -93,18 +115,15 @@ export const GeminiAssistant: React.FC<GeminiAssistantProps> = ({ onAddTransacti
 
   return (
     <div className="fixed bottom-6 right-6 z-50">
-      {/* App Button */}
+      {/* App Button (Hidden if controlled externally, but user wants it visible at bottom) */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={onClose ? onClose : () => {}} 
         className={cn(
           "w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all transform hover:scale-110 active:scale-95",
           isOpen ? "bg-natural-text text-white rotate-90" : "bg-natural-accent text-white"
         )}
       >
         {isOpen ? <X size={24} /> : <Bot size={28} />}
-        {!isOpen && (
-            <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-white animate-pulse" />
-        )}
       </button>
 
       {/* Chat Window */}

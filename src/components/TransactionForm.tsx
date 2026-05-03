@@ -20,10 +20,19 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCl
   );
   const [type, setType] = useState<TransactionType>(initialData?.type || 'expense');
   const [category, setCategory] = useState(initialData?.category || '');
+
+  // Helper to format local date for input
+  const getLocalDateString = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [date, setDate] = useState(
     initialData?.date 
-      ? new Date(initialData.date).toISOString().split('T')[0] 
-      : new Date().toISOString().split('T')[0]
+      ? getLocalDateString(initialData.date) 
+      : getLocalDateString(new Date())
   );
   
   // Recurrence states
@@ -36,12 +45,16 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCl
     e.preventDefault();
     if (!description || !amount || !date) return;
 
+    // Use noon local time to avoid timezone offset issues pushing it to adjacent days
+    const [year, month, day] = date.split('-').map(Number);
+    const parsedDate = new Date(year, month - 1, day, 12, 0, 0);
+
     onSubmit({
       description,
       amount: parseFloat(amount),
       type,
       category,
-      date: new Date(date),
+      date: parsedDate,
       isSubscription,
       ...(isRecurrent ? {
         recurrenceTotal: isEternal ? 0 : parseInt(recurrenceCount),
@@ -223,13 +236,22 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCl
             </div>
           )}
 
-          <button
-            type="submit"
-            className="w-full mt-6 bg-natural-accent hover:bg-natural-accent-hover text-white font-bold py-3.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
-          >
-            <Plus size={20} />
-            {initialData ? 'Salvar Alterações' : isRecurrent ? 'Criar Lançamentos Recorrentes' : 'Salvar Transação'}
-          </button>
+          <div className="flex gap-3 mt-6">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 bg-natural-bg hover:bg-natural-border/30 text-natural-muted font-bold py-3.5 rounded-xl transition-all border border-natural-border"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="flex-[2] bg-natural-accent hover:bg-natural-accent-hover text-white font-bold py-3.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+            >
+              <Plus size={20} />
+              {initialData ? 'Salvar Alterações' : isRecurrent ? 'Criar Recorrência' : 'Salvar'}
+            </button>
+          </div>
         </form>
       </div>
     </div>

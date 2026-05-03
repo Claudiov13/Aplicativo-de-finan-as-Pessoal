@@ -64,16 +64,29 @@ export const TransactionItem: React.FC<{
       )}>
         {transaction.type === 'income' ? '+' : '-'} {formatCurrency(transaction.amount)}
       </p>
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-1">
         <button 
-          onClick={() => onEdit(transaction)}
-          className="p-2 text-natural-muted hover:text-natural-accent hover:bg-natural-bg rounded-lg transition-all"
+          onClick={(e) => {
+            e.stopPropagation();
+            console.log("Edit clicked for:", transaction.id);
+            onEdit(transaction);
+          }}
+          className="p-2 text-natural-muted hover:text-natural-accent hover:bg-natural-bg rounded-lg transition-all cursor-pointer"
+          title="Editar"
         >
           <Edit2 size={16} />
         </button>
         <button 
-          onClick={() => transaction.id && onDelete(transaction.id)}
-          className="p-2 text-natural-muted hover:text-natural-expense hover:bg-natural-bg rounded-lg transition-all"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (transaction.id) {
+              onDelete(transaction.id);
+            }
+          }}
+          className="p-2 text-natural-muted hover:text-natural-expense hover:bg-natural-bg rounded-lg transition-all cursor-pointer relative z-50"
+          style={{ minWidth: '32px', minHeight: '32px' }}
+          title="Excluir"
         >
           <Trash2 size={16} />
         </button>
