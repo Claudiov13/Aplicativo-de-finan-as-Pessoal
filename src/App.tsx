@@ -56,6 +56,7 @@ import { TransactionForm } from './components/TransactionForm';
 import { SpreadsheetUpload } from './components/SpreadsheetUpload';
 import { Calculator } from './components/Calculator';
 import { SummaryCards, TransactionItem } from './components/DashboardElements';
+import { GeminiAssistant } from './components/GeminiAssistant';
 import { cn, formatCurrency } from './lib/utils';
 
 export default function App() {
@@ -785,6 +786,13 @@ export default function App() {
           }}
         />
       )}
+
+      <GeminiAssistant 
+        onAddTransaction={async (data) => {
+          await handleAddOrUpdate(data);
+        }}
+        transactions={transactions}
+      />
     </div>
   );
 }
